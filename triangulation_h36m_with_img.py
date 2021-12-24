@@ -31,12 +31,14 @@ intri = [data['intrinsics'][cams[0]],data['intrinsics'][cams[1]],data['intrinsic
 #     return pose
 
 def regular_normalized3d(poseset):
+    pose_norm_list = []
     for i in range(len(poseset)):
         root_joints = poseset[i].T[:, [0]]                                     
         pose_norm = np.linalg.norm((poseset[i].T - root_joints).reshape(-1, 48), ord=2, axis=1, keepdims=True)                     
         poseset[i] /= pose_norm
+        pose_norm_list.append(pose_norm)
 
-    return poseset
+    return poseset, np.array(pose_norm_list)
 
 # def regular_normalized3d(pose):
 #     root_joints = np.transpose(pose,(0,2,1))[:, :, [0]]     
@@ -69,12 +71,12 @@ def get_3d_triangulation(view_2d_pose,intri,view1=0,view2=1):
     triang_3d = np.array([triang_3d[0],triang_3d[2],-triang_3d[1]]).T
     return triang_3d.reshape(-1,16,3)
 
-Radius=1
+Radius=1000
 mpjpes = []
 plt.ion()
 fig = plt.figure(figsize=(12,12))
 for idx in range(data['poses_2d_annot'][cams[0]].shape[0]):       # 18432개의 frame 
-    if idx % 4 == 0:
+    if idx % 64 == 0:
         for c_idx, cam in enumerate(cams):
             p2d = data['poses_2d_annot'][cam][idx]
             p3d = data['poses_3d_annot'][cam][idx]
@@ -95,16 +97,24 @@ for idx in range(data['poses_2d_annot'][cams[0]].shape[0]):       # 18432개의 
 
         triang_3d = get_3d_triangulation(view_2d_pose,intri,view1=0,view2=1)
 
+        origin_3d_pose = view_3d_pose.copy()
+        view_3d_pose, pose_norm = regular_normalized3d(view_3d_pose) 
+        #view_3d_pose = scaled_normalized3d(view_3d_pose) * 4           # : scaling 필요없었음 
 
-        view_3d_pose = regular_normalized3d(view_3d_pose)
-        view_3d_pose = scaled_normalized3d(view_3d_pose) * 4
+        triang_3d, _ = regular_normalized3d(triang_3d) 
+        #triang_3d = scaled_normalized3d(triang_3d)[0] * 4
 
-        triang_3d = regular_normalized3d(triang_3d)
-        triang_3d = scaled_normalized3d(triang_3d)[0] * 4
+        view_3d_pose = view_3d_pose * pose_norm
+        triang_3d = triang_3d[0] * pose_norm[1] # pose_norm[1]인 이유는 1번째 view의 triangulation이라서 
 
-        mpjpe = np.mean(np.sqrt(np.sum((triang_3d - view_3d_pose[1])**2, axis=1)))
-        print(mpjpe)
-        mpjpes.append(mpjpe)
+        mpjpe1 = np.mean(np.sqrt(np.sum((triang_3d - view_3d_pose[1])**2, axis=1)))      # 1번째 view 3d tria이랑 view_3d_pose[1] 1번째
+        print(mpjpe1)
+        # mpjpe2 = np.mean(np.sqrt(np.sum((origin_3d_pose[1] - view_3d_pose[1])**2, axis=1)))
+        # print('origin3dannot & denorm3dannot', round(mpjpe2,2))                             # 0 나옴
+        # mpjpe3 = np.mean(np.sqrt(np.sum((triang_3d - origin_3d_pose[1])**2, axis=1)))       # denorm과 비교랑 똑같음
+        # print('trian3d & origin3dannot', round(mpjpe3,2))
+        # print()
+        mpjpes.append(mpjpe1)
 
         img_cam0 = cv2.cvtColor(cv2.imread('../' + imageset['cam0']), cv2.COLOR_BGR2RGB)
         img_cam1 = cv2.cvtColor(cv2.imread('../' + imageset['cam1']), cv2.COLOR_BGR2RGB)
@@ -115,7 +125,7 @@ for idx in range(data['poses_2d_annot'][cams[0]].shape[0]):       # 18432개의 
         show3Dpose(view_3d_pose[0], ax, data_type='h36m', radius=Radius, lcolor='blue',angles=(20,-60))
 
         ax = fig.add_subplot('252', projection='3d', aspect='auto')
-        show3Dpose(view_3d_pose[1], ax, data_type='h36m', radius=Radius, lcolor='blue',angles=(20,-60))
+        show3Dpose_with_annot(view_3d_pose[1],origin_3d_pose[1], ax, data_type='h36m', radius=Radius, lcolor='red',angles=(20,-60)) # normalize했다가 denorm한거, 원래annot
 
         ax = fig.add_subplot('253', projection='3d', aspect='auto')
         show3Dpose(view_3d_pose[2], ax, data_type='h36m', radius=Radius, lcolor='blue',angles=(20,-60))
@@ -125,7 +135,7 @@ for idx in range(data['poses_2d_annot'][cams[0]].shape[0]):       # 18432개의 
 #v ---
         ax = fig.add_subplot('255', projection='3d', aspect='auto')
         # show3Dpose(triang_3d, ax, data_type='h36m', radius=1, lcolor='red',angles=(20,-60))
-        show3Dpose_with_annot(view_3d_pose[1], triang_3d, ax, data_type='h36m', radius=1, lcolor='red',angles=(20,-60))
+        show3Dpose_with_annot(view_3d_pose[1], triang_3d, ax, data_type='h36m', radius=Radius, lcolor='red',angles=(20,-60))
 # -----------------------------------------------------------------------------------------
         ax = fig.add_subplot('256')
         show2Dpose(view_2d_pose[0], ax, data_type='h36m', image_size=(1000,1002))
